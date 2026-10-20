@@ -1,4 +1,4 @@
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, field, fields, replace
 from datetime import date, datetime, timedelta
 from enum import Enum
 
@@ -67,12 +67,14 @@ class Task:
         return replace(self, is_completed=False, due_date=self.due_date + step, id=0)
 
     def update(self, **changes) -> None:
-        """Update one or more fields on this task."""
-        for key, value in changes.items():
-            if key == "id" or not hasattr(self, key):
+        """Update one or more fields on this task; if any change is invalid, nothing changes."""
+        editable = {f.name for f in fields(self)} - {"id"}
+        for key in changes:
+            if key not in editable:
                 raise AttributeError(f"Task has no editable field {key!r}")
+        replace(self, **changes)  # validates on a copy; raises ValueError before this task changes
+        for key, value in changes.items():
             setattr(self, key, value)
-        self.__post_init__()  # re-validate after changes
 
 
 @dataclass

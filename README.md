@@ -54,7 +54,7 @@ The code is split into two layers. `pawpal_system.py` holds the core data model 
 
 **How they work together:** an `Owner` has `Pet`s, and each `Pet` has `Task`s. `Scheduler.generate_plan()` collects every unfinished task from all of the owner's pets, sorts them by priority (shorter tasks first when priorities tie), and adds each task to the plan if it fits in the remaining time. A task that doesn't fit is skipped. Results are stored as `(pet, task)` pairs so the plan shows whose task each one is. `explain_plan()` gives the reason each task was scheduled or skipped, and `get_total_duration()` adds up the scheduled minutes.
 
-`main.py` is a small demo that builds a sample owner, pets, and tasks and prints the plan. The tests in `tests/` cover task completion and adding tasks.
+`main.py` is a small demo that builds a sample owner, pets, and tasks and prints the plan. The tests in `tests/` are described in [Testing PawPal+](#-testing-pawpal).
 
 ## 🖥️ Sample Output
 
@@ -89,19 +89,44 @@ Tasks from every pet share the owner's single time budget. They are ordered by p
 
 ## 🧪 Testing PawPal+
 
+Run the full test suite from the project root:
+
 ```bash
-# Run the full test suite:
-pytest
-
-# Run with coverage:
-pytest --cov
+python -m pytest
 ```
 
-Sample test output:
+The tests live in `tests/`. `test_pawpal.py` covers the data model in `pawpal_system.py`, `test_scheduler.py` covers the planning logic in `scheduler.py`, and `test_app.py` covers the Streamlit app and the `main.py` demo:
+
+- **Tasks and pets:** creating a valid task fills in defaults, and an invalid priority, duration, frequency or time is rejected. Task ids are unique and never reused. Adding, editing and removing a task changes only that task, and a rejected edit leaves the task exactly as it was.
+- **Sorting:** `sort_by_time()` returns tasks in chronological order, compared as clock times (so `9:30` comes before `13:15`), with untimed tasks last.
+- **Filtering:** `filter_tasks()` narrows by pet, by completion status, or both.
+- **Recurrence:** marking a daily task complete adds a new, unfinished task due the next day, and a weekly task comes back 7 days later. One-off tasks don't come back, and tomorrow's copy isn't planned today.
+- **Conflict detection:** two tasks at the same start time are flagged for the same pet and across pets. Overlapping durations are flagged too, but back-to-back tasks, completed tasks and tasks on other days are not. A bad time gives a warning instead of crashing.
+- **Daily plan:** `generate_plan()` orders tasks by priority and then by shortest task, skips tasks that don't fit, uses leftover time for shorter tasks, and shares one budget across all pets. `explain_plan()` and `get_total_duration()` report the result.
+- **App:** using Streamlit's `AppTest` (no browser needed), the tests add pets and tasks through the forms, reject blank names, click **Mark complete** on a daily task, and generate a schedule that shows the total and the skipped tasks. `main.py` is run from start to finish.
+
+Sample test output (`python -m pytest`):
 
 ```
-# Paste your pytest output here
+============================= test session starts =============================
+platform win32 -- Python 3.14.5, pytest-9.1.1, pluggy-1.6.0
+rootdir: C:\Users\heinh\ai110-module2show-pawpal-starter
+plugins: anyio-4.13.0
+collected 55 items
+
+tests\test_app.py ........                                               [ 14%]
+tests\test_pawpal.py .......................                             [ 56%]
+tests\test_scheduler.py ........................                         [100%]
+
+============================= 55 passed in 2.57s ==============================
 ```
+
+**Confidence Level: ★★★★★ (5/5)**
+
+- All 55 tests pass, with no known bugs and no expected failures.
+- Every layer is tested: the data model, every scheduling feature (sorting, filtering, recurrence, conflict detection and the daily plan), and the app's main actions from the user's side.
+- The tests include edge cases, such as a task that exactly fills the time budget, back-to-back tasks that shouldn't conflict, overdue tasks, a rejected edit, and a bad time that shouldn't crash the app.
+- This rating is about how reliably the built features work. Some features are still simpler than planned (see [Current limitations](#current-limitations)). For example, the plan doesn't place fixed-time tasks at their set time.
 
 ## 📐 Smarter Scheduling
 

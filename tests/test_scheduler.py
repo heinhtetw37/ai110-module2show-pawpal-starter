@@ -2,7 +2,7 @@ from datetime import date, timedelta
 
 import pytest
 
-from pawpal_system import Frequency, Owner, Pet, Task
+from pawpal_system import Frequency, Owner, Pet, Priority, Task
 from scheduler import Scheduler
 
 TODAY = date(2026, 10, 19)
@@ -44,23 +44,34 @@ def test_filter_tasks_by_pet_and_status():
     assert scheduler.filter_tasks(pet_name="Rex") == []
 
 
-@pytest.mark.parametrize(
-    "frequency, step", [(Frequency.DAILY, timedelta(days=1)), (Frequency.WEEKLY, timedelta(weeks=1))]
-)
-def test_completing_recurring_task_creates_next_occurrence(frequency, step):
-    """A daily/weekly task comes back as a new, unfinished task on its next due date."""
+def test_completing_daily_task_creates_task_for_next_day():
+    """Marking a daily task complete adds a new, unfinished copy due the following day."""
     pet = Pet(name="Mochi", species="dog")
-    pet.add_task(Task("Breakfast", 10, frequency=frequency, due_date=TODAY))
+    pet.add_task(Task("Breakfast", 10, frequency=Frequency.DAILY, due_date=TODAY))
     scheduler = make_scheduler(pet)
 
     next_task = scheduler.complete_task(pet, task_id=1)
 
     assert pet.tasks[0].is_completed is True
+    assert len(pet.tasks) == 2
     assert next_task in pet.tasks
     assert next_task.is_completed is False
-    assert next_task.due_date == TODAY + step
+    assert next_task.due_date == TODAY + timedelta(days=1)
     assert next_task.id == 2
     assert next_task.title == "Breakfast"
+
+
+def test_completing_weekly_task_creates_task_for_next_week():
+    """Marking a weekly task complete adds a new, unfinished copy due 7 days later."""
+    pet = Pet(name="Mochi", species="dog")
+    pet.add_task(Task("Bath", 30, frequency=Frequency.WEEKLY, due_date=TODAY))
+
+    next_task = make_scheduler(pet).complete_task(pet, task_id=1)
+
+    assert pet.tasks[0].is_completed is True
+    assert next_task in pet.tasks
+    assert next_task.is_completed is False
+    assert next_task.due_date == TODAY + timedelta(weeks=1)
 
 
 def test_completing_one_off_task_does_not_recur():
@@ -193,3 +204,116 @@ def test_invalid_time_is_rejected():
     """A time that isn't HH:MM raises ValueError."""
     with pytest.raises(ValueError):
         Task("Walk", 30, time="8am")
+
+
+# --- Planning ---
+
+
+def test_generate_plan_orders_by_priority_then_shortest():
+    """HIGH tasks come first, and shorter tasks break ties within a priority."""
+    pet = Pet(name="Mochi", species="dog")
+    pet.add_task(Task("Brush coat", 20, priority=Priority.LOW, due_date=TODAY))
+    pet.add_task(Task("Long walk", 30, priority=Priority.HIGH, due_date=TODAY))
+    pet.add_task(Task("Give meds", 5, priority=Priority.HIGH, due_date=TODAY))
+    pet.add_task(Task("Play", 15, due_date=TODAY))
+
+    titles = [t.title for _, t in make_scheduler(pet).generate_plan(on=TODAY)]
+
+    assert titles == ["Give meds", "Long walk", "Play", "Brush coat"]
+
+
+def test_generate_plan_skips_tasks_that_dont_fit_and_fills_leftover_time():
+    """A task too long for the remaining time is skipped, but a later shorter one can still fit."""
+    pet = Pet(name="Mochi", species="dog")
+    pet.add_task(Task("Long walk", 60, priority=Priority.HIGH, due_date=TODAY))
+    pet.add_task(Task("Vet visit", 45, priority=Priority.MEDIUM, due_date=TODAY))
+    pet.add_task(Task("Brush coat", 20, priority=Priority.LOW, due_date=TODAY))
+    scheduler = make_scheduler(pet)  # 90-minute budget
+
+    plan = scheduler.generate_plan(on=TODAY)
+
+    assert [t.title for _, t in plan] == ["Long walk", "Brush coat"]
+    assert [t.title for _, t in scheduler.skipped_tasks] == ["Vet visit"]
+    assert scheduler.get_total_duration() == 80
+
+
+def test_generate_plan_task_exactly_filling_budget_is_scheduled():
+    """A task whose duration equals the remaining minutes still fits."""
+    pet = Pet(name="Mochi", species="dog")
+    pet.add_task(Task("Long walk", 90, due_date=TODAY))
+    scheduler = make_scheduler(pet)
+
+    assert len(scheduler.generate_plan(on=TODAY)) == 1
+    assert scheduler.skipped_tasks == []
+
+
+def test_generate_plan_shares_one_budget_across_pets():
+    """All pets draw from the owner's single time budget."""
+    mochi = Pet(name="Mochi", species="dog")
+    luna = Pet(name="Luna", species="cat")
+    mochi.add_task(Task("Long walk", 60, priority=Priority.HIGH, due_date=TODAY))
+    luna.add_task(Task("Play", 40, priority=Priority.HIGH, due_date=TODAY))
+    scheduler = make_scheduler(mochi, luna)
+
+    plan = scheduler.generate_plan(on=TODAY)
+
+    assert [(p.name, t.title) for p, t in plan] == [("Luna", "Play")]
+    assert [(p.name, t.title) for p, t in scheduler.skipped_tasks] == [("Mochi", "Long walk")]
+
+
+def test_generate_plan_excludes_completed_but_includes_overdue():
+    """Finished tasks are left out; unfinished tasks from earlier days are still planned."""
+    pet = Pet(name="Mochi", species="dog")
+    pet.add_task(Task("Breakfast", 10, due_date=TODAY, is_completed=True))
+    pet.add_task(Task("Trim nails", 15, due_date=TODAY - timedelta(days=2)))
+
+    titles = [t.title for _, t in make_scheduler(pet).generate_plan(on=TODAY)]
+
+    assert titles == ["Trim nails"]
+
+
+def test_generate_plan_resets_previous_results():
+    """Running the plan again replaces the old scheduled/skipped lists instead of adding to them."""
+    pet = Pet(name="Mochi", species="dog")
+    pet.add_task(Task("Walk", 30, due_date=TODAY))
+    pet.add_task(Task("Vet visit", 120, due_date=TODAY))
+    scheduler = make_scheduler(pet)
+
+    scheduler.generate_plan(on=TODAY)
+    scheduler.generate_plan(on=TODAY)
+
+    assert len(scheduler.scheduled_tasks) == 1
+    assert len(scheduler.skipped_tasks) == 1
+
+
+def test_generate_plan_with_no_tasks_is_empty():
+    """An owner with no pets or tasks gets an empty plan and zero minutes."""
+    scheduler = make_scheduler()
+
+    assert scheduler.generate_plan(on=TODAY) == []
+    assert scheduler.get_total_duration() == 0
+    assert scheduler.explain_plan() == ""
+
+
+def test_explain_plan_mentions_scheduled_and_skipped_tasks():
+    """Each scheduled and skipped task gets one line explaining why."""
+    pet = Pet(name="Mochi", species="dog")
+    pet.add_task(Task("Give meds", 5, priority=Priority.HIGH, due_date=TODAY))
+    pet.add_task(Task("Vet visit", 120, due_date=TODAY))
+    scheduler = make_scheduler(pet)
+    scheduler.generate_plan(on=TODAY)
+
+    assert scheduler.explain_plan().splitlines() == [
+        "Scheduled Give meds (Mochi): HIGH priority, 5 min fits in the time budget.",
+        "Skipped Vet visit (Mochi): 120 min did not fit in the remaining time.",
+    ]
+
+
+def test_explain_and_total_before_planning_are_empty():
+    """Current behavior: calling these before generate_plan() quietly returns nothing."""
+    pet = Pet(name="Mochi", species="dog")
+    pet.add_task(Task("Walk", 30, due_date=TODAY))
+    scheduler = make_scheduler(pet)
+
+    assert scheduler.explain_plan() == ""
+    assert scheduler.get_total_duration() == 0
