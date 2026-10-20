@@ -79,10 +79,30 @@ When I reviewed the skeleton, I found three structural problems and changed the 
 - How did you use AI tools during this project (for example: design brainstorming, debugging, refactoring)?
 - What kinds of prompts or questions were most helpful?
 
+I used Claude Code (an AI coding assistant) at almost every stage of the project:
+
+- **Design:** turning my UML diagram into class skeletons in `pawpal_system.py`, and reviewing that skeleton for structural problems before I wrote any scheduling logic.
+- **Refactoring:** the AI pointed out that a Scheduler built for one Owner and one Pet would give the owner's full time budget to each pet, so planning two pets would double-book the owner. It suggested planning across all of the owner's pets with one shared budget. It also suggested replacing the free-text priority with a `Priority` enum and having `Pet.add_task` assign task ids automatically.
+- **Testing:** drafting the first two tests, one for `mark_complete()` and one for `add_task()`.
+- **Debugging:** working out why `python -m pytest` failed in my PowerShell terminal but worked in Bash. The cause was that a Windows "app execution alias" `python.exe` came before my real Python on the PATH.
+- **Documentation:** adding docstrings and writing the implementation summary in the README.
+
+The most helpful prompts were short, specific requests with a clear success condition, such as "Verify that calling `mark_complete()` actually changes the task's status." Asking the AI to *review* code I already had ("what is structurally wrong with this skeleton?") was more useful than asking it to write new code, because it found design bugs I hadn't noticed.
+
 **b. Judgment and verification**
 
 - Describe one moment where you did not accept an AI suggestion as-is.
 - How did you evaluate or verify what the AI suggested?
+
+I did not accept the first class design as-is. The first draft included `Owner.preferences`, `Owner.get_all_tasks()`, `Owner.update_availability()`, `Pet.get_tasks()`, and `Task.__str__()`. I removed all of them because nothing in the scheduler used them yet, or because they only wrapped an attribute that was already public. I also changed the Owner → Pet relationship from "1..\*" to "0..\*", since an owner can exist before they add a pet. Keeping the design small made the later refactor easier to reason about.
+
+I also chose which suggestions to act on. When debugging the PowerShell problem, the AI offered a quick workaround (`py -m pytest`) and two permanent fixes (turning off the alias, or reordering PATH). When I asked for docstrings, it reported that every method already had one, and offered to add class docstrings instead. I didn't take that offer because the methods were what I needed documented.
+
+I verified the AI's work in three ways:
+
+1. **Running the tests.** After each change, I ran `python -m pytest` and checked that both tests still passed. The tests check the value *before* and *after* the action (for example, that `is_completed` starts as `False` and becomes `True`). That way a test can't pass just because the field already had the right value from the start.
+2. **Running the demo and checking it by hand.** I ran `python main.py` and checked the printed plan against the rules: HIGH-priority tasks come first, shorter tasks come first when priorities tie, the total (80 min) stays within the 90-minute budget, and "Laser play" (25 min) is correctly skipped because only 10 minutes are left.
+3. **Reviewing the diff.** Before committing, I read through the changes with `git diff` to make sure the AI only edited what I asked for.
 
 ---
 

@@ -42,17 +42,50 @@ pip install -r requirements.txt
 6. Connect your logic to the Streamlit UI in `app.py`.
 7. Refine UML so it matches what you actually built.
 
+## 🧩 Implementation Summary
+
+The scheduling logic lives in `pawpal_system.py` and is built from five pieces:
+
+- **`Priority`**: an enum (`HIGH`, `MEDIUM`, `LOW`) that controls the order tasks are scheduled in. Using an enum instead of a string means a typo raises an error instead of sorting incorrectly.
+- **`Task`**: one care activity, with a title, duration, priority, category, and completion status. It checks itself when it is created or updated (a valid priority and a positive duration), and `mark_complete()` marks it as done.
+- **`Pet`**: owns a list of tasks. `add_task()` gives each task a unique id, and `remove_task()` / `edit_task()` look tasks up by that id.
+- **`Owner`**: holds the daily time budget (`available_minutes`) and the list of pets.
+- **`Scheduler`**: takes an `Owner` and plans every pet's tasks against that one shared budget.
+
+**How they work together:** an `Owner` has `Pet`s, and each `Pet` has `Task`s. `Scheduler.generate_plan()` collects every unfinished task from all of the owner's pets, sorts them by priority (shorter tasks first when priorities tie), and adds each task to the plan if it fits in the remaining time. A task that doesn't fit is skipped. Results are stored as `(pet, task)` pairs so the plan shows whose task each one is. `explain_plan()` gives the reason each task was scheduled or skipped, and `get_total_duration()` adds up the scheduled minutes.
+
+`main.py` is a small demo that builds a sample owner, pets, and tasks and prints the plan. The tests in `tests/` cover task completion and adding tasks.
+
 ## 🖥️ Sample Output
 
-Paste a sample of your app's CLI or Streamlit output here so a reader can see what a generated plan looks like:
+Running `python main.py` builds a sample owner with two pets and six tasks, then prints the generated plan:
 
 ```
-# e.g.:
-# Daily plan for Biscuit (Golden Retriever):
-#   08:00 — Morning walk (30 min) [priority: high]
-#   09:00 — Feeding (10 min) [priority: high]
-#   ...
+==================================================
+Today's Schedule for Jordan
+Time available: 90 min
+==================================================
+08:00 AM - 08:05 AM  Luna   Give meds       [HIGH]
+08:05 AM - 08:15 AM  Mochi  Breakfast       [HIGH]
+08:15 AM - 08:45 AM  Mochi  Morning walk    [HIGH]
+08:45 AM - 09:00 AM  Luna   Puzzle feeder   [MEDIUM]
+09:00 AM - 09:20 AM  Mochi  Brush coat      [LOW]
+--------------------------------------------------
+Total scheduled: 80 min
+
+Skipped (not enough time):
+  Luna: Laser play (25 min)
+
+Why this plan:
+Scheduled Give meds (Luna): HIGH priority, 5 min fits in the time budget.
+Scheduled Breakfast (Mochi): HIGH priority, 10 min fits in the time budget.
+Scheduled Morning walk (Mochi): HIGH priority, 30 min fits in the time budget.
+Scheduled Puzzle feeder (Luna): MEDIUM priority, 15 min fits in the time budget.
+Scheduled Brush coat (Mochi): LOW priority, 20 min fits in the time budget.
+Skipped Laser play (Luna): 25 min did not fit in the remaining time.
 ```
+
+Tasks from every pet share the owner's single time budget. They are ordered by priority, with shorter tasks first when priorities tie. Any task that no longer fits in the remaining time is skipped.
 
 ## 🧪 Testing PawPal+
 
