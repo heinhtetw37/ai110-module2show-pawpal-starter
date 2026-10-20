@@ -70,6 +70,24 @@ When I reviewed the skeleton, I found three structural problems and changed the 
 - Describe one tradeoff your scheduler makes.
 - Why is that tradeoff reasonable for this scenario?
 
+**My scheduler detects time conflicts but does not resolve them.** `Scheduler.find_conflicts()` checks every pair of unfinished fixed-time tasks due that day, across all pets. It compares full durations, not just start times, so a 10-minute breakfast at 08:00 conflicts with meds at 08:05 even though their start times differ. When it finds an overlap, it returns a warning message such as:
+
+```
+Conflict (different pets): Breakfast (Mochi) at 08:00 starts at the same time as Give meds (Luna) at 08:00.
+```
+
+That is all it does. It doesn't move either task to a free slot, doesn't refuse to add a task that clashes, and never raises an error. Even a task with an unreadable time just produces a `Warning:` line, and the other tasks are still checked.
+
+The cost is that the owner has to fix conflicts themselves, and a busy owner could miss a warning. A smarter scheduler could automatically push the lower-priority task to the next open time.
+
+I think this tradeoff is reasonable for PawPal+ for three reasons:
+
+- **Not every conflict is a real problem.** Feeding two pets at 08:00 may be fine if they eat side by side, but giving meds while walking the dog is not. The scheduler can't tell these apart, and the owner can.
+- **Automatic rescheduling could do harm quietly.** Moving a medication to a later time without asking could matter more than a missed walk. A warning keeps the owner in control of time-sensitive care.
+- **It keeps the app reliable and the code simple.** Because it only reports, one bad task can't crash the app or hide other warnings. The check itself is a short loop over every pair of tasks, which is easy to read and test, and fast enough for the 10–20 timed tasks a pet owner has in a day.
+
+If I added automatic rescheduling later, I'd make it a suggestion the owner can accept or reject ("Move Give meds to 08:10?") rather than a silent change.
+
 ---
 
 ## 3. AI Collaboration

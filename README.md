@@ -44,7 +44,7 @@ pip install -r requirements.txt
 
 ## 🧩 Implementation Summary
 
-The scheduling logic lives in `pawpal_system.py` and is built from five pieces:
+The code is split into two layers. `pawpal_system.py` holds the core data model (`Priority`, `Task`, `Pet`, `Owner`), and `scheduler.py` holds the planning algorithm (`Scheduler`). Planning ideas for the algorithm are tracked separately in [`algorithm_plan.md`](algorithm_plan.md). The five pieces are:
 
 - **`Priority`**: an enum (`HIGH`, `MEDIUM`, `LOW`) that controls the order tasks are scheduled in. Using an enum instead of a string means a typo raises an error instead of sorting incorrectly.
 - **`Task`**: one care activity, with a title, duration, priority, category, and completion status. It checks itself when it is created or updated (a valid priority and a positive duration), and `mark_complete()` marks it as done.
@@ -105,14 +105,86 @@ Sample test output:
 
 ## 📐 Smarter Scheduling
 
-> Fill in once you've implemented scheduling logic.
+On top of the basic priority-based plan, PawPal+ can sort tasks by clock time, filter them, detect time conflicts, and repeat daily or weekly tasks. The core data lives in `pawpal_system.py`, and the planning logic lives in `scheduler.py` (see [`algorithm_plan.md`](algorithm_plan.md) for design notes). Run `python main.py` to see every feature below in the terminal.
 
-| Feature | Method(s) | Notes |
-|---------|-----------|-------|
-| Task sorting | | e.g., by priority, duration |
-| Filtering | | e.g., skip tasks if time runs out |
-| Conflict handling | | e.g., overlapping time slots |
-| Recurring tasks | | e.g., daily vs. weekly |
+| Feature | Method(s) | Summary |
+|---------|-----------|---------|
+| Sorting | `Scheduler.sort_by_time()`, `Scheduler.generate_plan()` | Order tasks by their `"HH:MM"` start time, or by priority and then duration for the daily plan. |
+| Filtering | `Scheduler.filter_tasks(pet_name, completed)` | Show one pet's tasks, finished or unfinished tasks, or both combined. |
+| Conflict detection | `Scheduler.find_conflicts(on)` | Warn when two fixed-time tasks overlap, for the same pet or different pets. |
+| Recurring tasks | `Task.next_occurrence()`, `Scheduler.complete_task(pet, task_id)` | Completing a daily or weekly task automatically creates the next one. |
+
+### Sorting: `Scheduler.sort_by_time()`
+
+- Each task can have an optional fixed start time, `Task.time`, written as `"HH:MM"`.
+- `sort_by_time()` orders `(pet, task)` pairs by that time, using a `lambda`-style key function.
+- Times are converted to minutes after midnight before comparing. Plain string sorting would put `"13:15"` before `"9:30"`, because it compares character by character.
+- Tasks with no time, or a time that can't be read, go last. Tasks with the same time keep the order they were added.
+- It returns a new list, so you can pass in any subset of tasks (for example, the result of `filter_tasks()`).
+
+`Scheduler.generate_plan()` uses a different order for the daily plan: priority first (`HIGH` → `LOW`), then shorter tasks first to break ties.
+
+```
+Tasks in the order they were added:      Sorted by time (untimed last):
+  --:--  Mochi  Brush coat                  07:00  Mochi  Morning walk
+  08:00  Mochi  Breakfast                   08:00  Mochi  Breakfast
+  07:00  Mochi  Morning walk                08:00  Luna   Give meds
+  19:00  Luna   Laser play                   9:30  Luna   Puzzle feeder
+   9:30  Luna   Puzzle feeder               19:00  Luna   Laser play
+  08:00  Luna   Give meds                   --:--  Mochi  Brush coat
+```
+
+### Filtering: `Scheduler.filter_tasks(pet_name, completed)`
+
+- `pet_name` keeps only tasks for the pet with that exact name.
+- `completed=True` keeps finished tasks, and `completed=False` keeps unfinished ones.
+- Both filters are optional, and when you give both, a task must match both. Leaving a filter as `None` means "don't filter on this", so `filter_tasks()` with no arguments returns everything.
+- An unknown pet name returns an empty list rather than an error.
+
+```python
+scheduler.filter_tasks(pet_name="Mochi")                   # all of Mochi's tasks
+scheduler.filter_tasks(completed=False)                    # unfinished tasks, every pet
+scheduler.filter_tasks(pet_name="Mochi", completed=False)  # Mochi's unfinished tasks
+```
+
+`generate_plan()` also filters on its own: it leaves out completed tasks and tasks due after the planning day.
+
+### Conflict detection: `Scheduler.find_conflicts(on)`
+
+- Looks at every unfinished task with a fixed time that's due on the given day (today by default), across **all pets**.
+- Turns each task into a start–end range, sorts by start time, and checks every pair with `itertools.combinations`.
+- Two tasks conflict when the later one starts **before the earlier one ends**. Overlapping durations count, not just identical start times: a 10-minute task at 08:00 conflicts with one at 08:05. A task that starts exactly when another ends is not a conflict.
+- Each warning says whether the clash is for the **same pet** or **different pets**, and whether the tasks start at the same time or just overlap.
+- **Lightweight by design:** it returns warning messages and never raises an error or changes the plan. A task with an unreadable time gets its own `Warning:` line, and the other tasks are still checked.
+
+```
+Conflict (different pets): Breakfast (Mochi) at 08:00 starts at the same time as Give meds (Luna) at 08:00.
+Conflict (same pet): Walk (Mochi) at 08:00 overlaps Breakfast (Mochi) at 08:10.
+Warning: couldn't check Give meds (Mochi) for conflicts; time '8am' isn't HH:MM.
+```
+
+### Recurring tasks: `Task.next_occurrence()` and `Scheduler.complete_task()`
+
+- Each task has a `frequency` (`ONCE`, `DAILY` or `WEEKLY`) and a `due_date` (today by default).
+- `Task.next_occurrence()` holds the rule. It returns an unfinished copy of the task due 1 day later (`DAILY`) or 7 days later (`WEEKLY`), or `None` for `ONCE`. The original task is not changed.
+- `Scheduler.complete_task(pet, task_id)` is the one place to finish a task. It marks the task done, then adds the next occurrence to the same pet, which gives it a new id. It raises `KeyError` if the pet has no task with that id.
+- Because `generate_plan()` only includes tasks due on or before the planning day, tomorrow's copy doesn't appear in today's plan.
+- In the app, the **Mark complete** button calls `complete_task()`.
+
+```
+Completed Breakfast (daily; next due 2026-10-20) and Morning walk (one-off).
+
+Filter: Mochi's unfinished tasks:
+  --:--  Mochi  Brush coat     [todo] due 2026-10-19
+  08:00  Mochi  Breakfast      [todo] due 2026-10-20
+```
+
+### Current limitations
+
+- `generate_plan()` still lays tasks out back to back from 8:00 AM and doesn't place fixed-time tasks at their set time.
+- Conflicts are reported but not resolved automatically. The owner decides what to move (see section 2b of `reflection.md`).
+- The next occurrence is counted from the old due date, so a daily task completed late comes back still overdue.
+- The app doesn't have inputs for a task's fixed time yet, so conflict warnings show only in `main.py` and the tests.
 
 ## 📸 Demo Walkthrough
 

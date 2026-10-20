@@ -2,7 +2,8 @@ from datetime import datetime, timedelta
 
 import streamlit as st
 
-from pawpal_system import Owner, Pet, Priority, Scheduler, Task
+from pawpal_system import Frequency, Owner, Pet, Priority, Task
+from scheduler import Scheduler
 
 st.set_page_config(page_title="PawPal+", page_icon="🐾", layout="centered")
 
@@ -90,14 +91,43 @@ if owner.pets:
         category = st.selectbox(
             "Category", ["walk", "feeding", "meds", "enrichment", "grooming", "general"]
         )
+    frequency = st.selectbox("Repeats", [f.name for f in Frequency])
 
     if st.button("Add task"):
         if task_title.strip():
             pet.add_task(
-                Task(task_title.strip(), int(duration), Priority[priority], category)
+                Task(
+                    task_title.strip(),
+                    int(duration),
+                    Priority[priority],
+                    category,
+                    frequency=Frequency[frequency],
+                )
             )
         else:
             st.error("Task title can't be empty.")
+
+    unfinished = [t for t in pet.tasks if not t.is_completed]
+    if unfinished:
+        col1, col2 = st.columns([3, 1], vertical_alignment="bottom")
+        with col1:
+            done_id = st.selectbox(
+                f"Mark one of {pet.name}'s tasks complete",
+                [t.id for t in unfinished],
+                format_func=lambda i: next(
+                    f"{t.title} (due {t.due_date})" for t in unfinished if t.id == i
+                ),
+            )
+        with col2:
+            if st.button("Mark complete"):
+                next_task = Scheduler(owner).complete_task(pet, done_id)
+                if next_task:
+                    st.success(
+                        f"Done! {next_task.title} repeats "
+                        f"{next_task.frequency.name.lower()}; next due {next_task.due_date}."
+                    )
+                else:
+                    st.success("Done!")
 
     rows = [
         {
@@ -106,6 +136,9 @@ if owner.pets:
             "Minutes": t.duration_minutes,
             "Priority": t.priority.name,
             "Category": t.category,
+            "Repeats": t.frequency.name,
+            "Due": str(t.due_date),
+            "Status": "done" if t.is_completed else "todo",
         }
         for p in owner.pets
         for t in p.tasks
