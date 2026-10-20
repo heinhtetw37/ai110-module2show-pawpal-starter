@@ -7,6 +7,25 @@
 - Briefly describe your initial UML design.
 - What classes did you include, and what responsibilities did you assign to each?
 
+The initial design is built around three core actions a user needs to perform:
+
+1. **Enter owner and pet information.** The user starts by telling the app who they are and which pet they are caring for (for example, the owner's name, the pet's name and species, and how much time the owner has available each day). This gives the scheduler the basic context and the time constraint it must plan around.
+
+2. **Add and edit care tasks.** The user can create tasks such as walks, feeding, medication, enrichment, or grooming. Each task has at minimum a title, a duration, and a priority, and the user can change or remove a task later as the pet's needs change.
+
+3. **Generate and view a daily plan.** The user asks the app to build a schedule for the day. The app selects and orders tasks based on priority and the owner's available time, then displays the plan along with a short explanation of why each task was included, ordered where it was, or left out.
+
+From those actions, I identified four main objects:
+
+| Object | Attributes (what it holds) | Methods (what it does) |
+|--------|----------------------------|------------------------|
+| **Owner** | `name`, `available_minutes` (daily time budget), `pets` | `add_pet(pet)` |
+| **Pet** | `name`, `species`, `age`, `tasks` | `add_task(task)`, `remove_task(task_id)`, `edit_task(task_id, **changes)` |
+| **Task** | `id`, `title`, `category` (walk, feeding, meds, enrichment, grooming), `duration_minutes`, `priority` (high/medium/low), `is_completed` | `mark_complete()`, `update(**changes)` |
+| **Scheduler** | `owner`, `pet`, `scheduled_tasks`, `skipped_tasks` | `generate_plan()` (sort by priority, fit within the time budget), `explain_plan()` (reason for each included/skipped task), `get_total_duration()` |
+
+Relationships: an Owner has zero or more Pets, a Pet has many Tasks, and the Scheduler reads from an Owner and Pet to produce the plan.
+
 **b. Design changes**
 
 - Did your design change during implementation?
