@@ -1,4 +1,11 @@
 classDiagram
+    class Priority {
+        <<enumeration>>
+        HIGH = 1
+        MEDIUM = 2
+        LOW = 3
+    }
+
     class Owner {
         +str name
         +int available_minutes
@@ -11,33 +18,33 @@ classDiagram
         +str species
         +int age
         +list~Task~ tasks
+        -int _next_id
         +add_task(task) void
         +remove_task(task_id) void
         +edit_task(task_id, **changes) void
     }
 
     class Task {
-        +int id
         +str title
         +int duration_minutes
-        +str priority
+        +Priority priority
         +str category
         +bool is_completed
+        +int id
         +mark_complete() void
         +update(**changes) void
     }
 
     class Scheduler {
         +Owner owner
-        +Pet pet
-        +list~Task~ scheduled_tasks
-        +list~Task~ skipped_tasks
-        +generate_plan() list~Task~
+        +list~tuple~ scheduled_tasks
+        +list~tuple~ skipped_tasks
+        +generate_plan() list~tuple~
         +explain_plan() str
         +get_total_duration() int
     }
 
     Owner "1" --> "0..*" Pet : has
     Pet "1" --> "0..*" Task : has
-    Scheduler --> Owner : reads time budget
-    Scheduler --> Pet : plans tasks for
+    Task --> Priority : uses
+    Scheduler --> Owner : plans for all pets of

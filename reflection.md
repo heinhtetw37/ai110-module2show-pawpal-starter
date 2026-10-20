@@ -40,6 +40,22 @@ I kept the design small on purpose. I left out features such as owner preference
 - Did your design change during implementation?
 - If yes, describe at least one change and why you made it.
 
+Yes. My first draft had more methods and attributes than the system needed, so I simplified it before writing any logic:
+
+- **Removed `Owner.preferences`**: nothing in the scheduler used it yet, so it only added complexity.
+- **Removed `Owner.get_all_tasks()` and `Owner.update_availability()`**: the scheduler plans one pet at a time, so collecting every pet's tasks wasn't needed, and updating availability was just setting one attribute, which can be done directly.
+- **Removed `Pet.get_tasks()`**: it only returned the `tasks` list, which is already public.
+- **Removed `Task.__str__()`** from the diagram because I never implemented it.
+- **Changed the Owner → Pet relationship from "1..\*" to "0..\*"**: an owner can exist before adding a pet, so requiring at least one pet didn't match how the app is used.
+
+I then turned the UML into a class skeleton in `pawpal_system.py`. `Task`, `Pet`, and `Owner` are dataclasses because they mainly hold data. `Scheduler` is a regular class because it holds the planning behavior.
+
+When I reviewed the skeleton, I found three structural problems and changed the design to fix them:
+
+- **The Scheduler now takes only the Owner.** It used to take one Owner and one Pet, but it used the owner's whole time budget for that one pet. Planning two pets separately would have double-booked the owner's time. Now it plans across all of `owner.pets` with one shared budget. It stores results as `(pet, task)` pairs so the plan still shows whose task each one is. This also removed the risk of passing in a pet that doesn't belong to the owner.
+- **`priority` is now a `Priority` enum (HIGH/MEDIUM/LOW)** instead of a free-text string. Before, a typo like `"High"` would have sorted incorrectly without any error. `Task.__post_init__` now rejects invalid priorities and non-positive durations.
+- **Task ids are now assigned by `Pet.add_task`** using a per-pet counter (`_next_id`), instead of the caller choosing them. This prevents duplicate ids that could make `remove_task` or `edit_task` act on the wrong task.
+
 ---
 
 ## 2. Scheduling Logic and Tradeoffs

@@ -1,14 +1,28 @@
 from dataclasses import dataclass, field
+from enum import Enum
+
+
+class Priority(Enum):
+    # Lower value = scheduled first
+    HIGH = 1
+    MEDIUM = 2
+    LOW = 3
 
 
 @dataclass
 class Task:
-    id: int
     title: str
     duration_minutes: int
-    priority: str = "medium"  # high / medium / low
+    priority: Priority = Priority.MEDIUM
     category: str = "general"  # walk, feeding, meds, enrichment, grooming
     is_completed: bool = False
+    id: int = 0  # assigned by Pet.add_task
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.priority, Priority):
+            raise ValueError(f"priority must be a Priority, got {self.priority!r}")
+        if self.duration_minutes <= 0:
+            raise ValueError("duration_minutes must be positive")
 
     def mark_complete(self) -> None:
         """Mark this task as done."""
@@ -25,9 +39,10 @@ class Pet:
     species: str
     age: int = 0
     tasks: list[Task] = field(default_factory=list)
+    _next_id: int = field(default=1, repr=False)
 
     def add_task(self, task: Task) -> None:
-        """Add a care task for this pet."""
+        """Assign the task a unique id (from _next_id) and add it to this pet."""
         pass
 
     def remove_task(self, task_id: int) -> None:
@@ -51,14 +66,15 @@ class Owner:
 
 
 class Scheduler:
-    def __init__(self, owner: Owner, pet: Pet):
-        self.owner = owner
-        self.pet = pet
-        self.scheduled_tasks: list[Task] = []
-        self.skipped_tasks: list[Task] = []
+    """Plans all of an owner's pets against one shared time budget."""
 
-    def generate_plan(self) -> list[Task]:
-        """Choose and order tasks by priority within the owner's available time."""
+    def __init__(self, owner: Owner):
+        self.owner = owner
+        self.scheduled_tasks: list[tuple[Pet, Task]] = []
+        self.skipped_tasks: list[tuple[Pet, Task]] = []
+
+    def generate_plan(self) -> list[tuple[Pet, Task]]:
+        """Choose and order tasks from every pet by priority within the owner's available time."""
         pass
 
     def explain_plan(self) -> str:
