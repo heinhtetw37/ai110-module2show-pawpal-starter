@@ -26,6 +26,15 @@ From those actions, I identified four main objects:
 
 Relationships: an Owner has zero or more Pets, a Pet has many Tasks, and the Scheduler reads from an Owner and Pet to produce the plan.
 
+My initial UML design uses four classes. Three of them hold data, and one holds the planning logic:
+
+- **Task** is the smallest unit of care: one thing that needs to happen, such as a walk or a feeding. It is responsible for knowing how long it takes, how important it is, and whether it has been done. It can mark itself complete and update its own fields. I made it a dataclass because it is mostly data.
+- **Pet** represents the animal being cared for and owns its list of tasks. It is responsible for managing that list: adding, removing, and editing tasks. Keeping tasks on the pet means each pet's care needs stay grouped together.
+- **Owner** represents the user. It holds the most important constraint, `available_minutes`, which is how much time the owner has for pet care today, and keeps track of their pets.
+- **Scheduler** is the "brain" of the system. It takes an Owner and a Pet, decides which tasks fit into the available time (highest priority first), records what was scheduled and what was skipped, and explains its choices. I kept it as a separate regular class, not a dataclass, so that the scheduling rules live in one place instead of being spread across the data classes. This also makes the logic easier to test and change later.
+
+I kept the design small on purpose. I left out features such as owner preferences and specific time slots until the basic plan works.
+
 **b. Design changes**
 
 - Did your design change during implementation?
