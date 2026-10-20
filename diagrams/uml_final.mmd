@@ -1,0 +1,78 @@
+classDiagram
+    namespace pawpal_system {
+        class Priority {
+            <<enumeration>>
+            HIGH = 1
+            MEDIUM = 2
+            LOW = 3
+        }
+
+        class Frequency {
+            <<enumeration>>
+            ONCE
+            DAILY
+            WEEKLY
+        }
+
+        class Owner {
+            +str name
+            +int available_minutes
+            +list~Pet~ pets
+            +add_pet(pet) void
+        }
+
+        class Pet {
+            +str name
+            +str species
+            +int age
+            +list~Task~ tasks
+            -int _next_id
+            +add_task(task) void
+            +remove_task(task_id) void
+            +edit_task(task_id, **changes) void
+        }
+
+        class Task {
+            +str title
+            +int duration_minutes
+            +Priority priority
+            +str category
+            +bool is_completed
+            +str|None time
+            +Frequency frequency
+            +date due_date
+            +int id
+            +mark_complete() void
+            +next_occurrence() Task|None
+            +update(**changes) void
+        }
+    }
+
+    namespace scheduler {
+        class Scheduler {
+            +Owner owner
+            +list~tuple~ scheduled_tasks
+            +list~tuple~ skipped_tasks
+            +all_tasks() list~tuple~
+            +filter_tasks(pet_name, completed) list~tuple~
+            +sort_by_time(pairs) list~tuple~
+            +complete_task(pet, task_id) Task|None
+            +find_conflicts(on) list~str~
+            +generate_plan(on) list~tuple~
+            +explain_plan() str
+            +get_total_duration() int
+        }
+    }
+
+    Owner "1" o-- "0..*" Pet : pets
+    Pet "1" o-- "0..*" Task : tasks
+    Pet ..> Task : edit_task calls update()
+    Task --> Priority : uses
+    Task --> Frequency : uses
+    Task ..> Task : next_occurrence creates
+    Scheduler --> Owner : plans for all pets of
+    Scheduler ..> Pet : complete_task calls add_task()
+    Scheduler ..> Task : schedules (pet, task) pairs
+
+    note for Pet "add_task assigns Task.id from _next_id"
+    note for Task "next_occurrence: DAILY +1 day, WEEKLY +7 days, ONCE returns None"

@@ -1,0 +1,17 @@
+sequenceDiagram
+    participant S as Scheduler
+    participant P as Pet
+    participant T as Task
+    S->>P: look up task_id in pet.tasks
+    alt no task with that id
+        S-->>S: raise KeyError
+    end
+    S->>T: mark_complete()
+    S->>T: next_occurrence()
+    alt DAILY or WEEKLY
+        T-->>S: copy due +1 / +7 days (id=0)
+        S->>P: add_task(copy)
+        P-->>P: assign new id from _next_id
+    else ONCE
+        T-->>S: None
+    end

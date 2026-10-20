@@ -7,6 +7,9 @@ from scheduler import Scheduler
 
 st.set_page_config(page_title="PawPal+", page_icon="🐾", layout="centered")
 
+# Colored labels so priority stands out at a glance in tables
+PRIORITY_LABEL = {Priority.HIGH: "🔴 HIGH", Priority.MEDIUM: "🟡 MEDIUM", Priority.LOW: "🟢 LOW"}
+
 st.title("🐾 PawPal+")
 
 st.markdown(
@@ -91,7 +94,12 @@ if owner.pets:
         category = st.selectbox(
             "Category", ["walk", "feeding", "meds", "enrichment", "grooming", "general"]
         )
-    frequency = st.selectbox("Repeats", [f.name for f in Frequency])
+    col1, col2 = st.columns(2, vertical_alignment="bottom")
+    with col1:
+        frequency = st.selectbox("Repeats", [f.name for f in Frequency])
+    with col2:
+        has_time = st.checkbox("Fixed start time")
+        start_time = st.time_input("Start time", value=None, disabled=not has_time)
 
     if st.button("Add task"):
         if task_title.strip():
@@ -101,6 +109,7 @@ if owner.pets:
                     int(duration),
                     Priority[priority],
                     category,
+                    time=start_time.strftime("%H:%M") if has_time and start_time else None,
                     frequency=Frequency[frequency],
                 )
             )
@@ -129,25 +138,62 @@ if owner.pets:
                 else:
                     st.success("Done!")
 
+    scheduler = Scheduler(owner)
+
+    st.markdown("#### Current tasks")
+    st.caption("Sorted by start time; tasks without a fixed time are listed last.")
+    col1, col2 = st.columns(2)
+    with col1:
+        pet_filter = st.selectbox("Show pet", ["All"] + [p.name for p in owner.pets])
+    with col2:
+        status_filter = st.selectbox("Show status", ["All", "To do", "Done"])
+    filtered = scheduler.filter_tasks(
+        pet_name=None if pet_filter == "All" else pet_filter,
+        completed={"All": None, "To do": False, "Done": True}[status_filter],
+    )
+    conflicts = scheduler.find_conflicts()
+
+    col1, col2, col3, col4 = st.columns(4)
+    col1.metric("Showing", len(filtered))
+    col2.metric("To do", sum(not t.is_completed for _, t in filtered))
+    col3.metric("Done", sum(t.is_completed for _, t in filtered))
+    col4.metric("Conflicts", len(conflicts))
+
     rows = [
         {
+            "Time": t.time or "Flexible",
             "Pet": p.name,
             "Task": t.title,
             "Minutes": t.duration_minutes,
-            "Priority": t.priority.name,
-            "Category": t.category,
-            "Repeats": t.frequency.name,
-            "Due": str(t.due_date),
-            "Status": "done" if t.is_completed else "todo",
+            "Priority": PRIORITY_LABEL[t.priority],
+            "Category": t.category.title(),
+            "Repeats": t.frequency.name.title(),
+            "Due": t.due_date,
+            "Done": t.is_completed,
         }
-        for p in owner.pets
-        for t in p.tasks
+        for p, t in scheduler.sort_by_time(filtered)
     ]
     if rows:
-        st.write("Current tasks:")
-        st.table(rows)
+        st.dataframe(
+            rows,
+            hide_index=True,
+            width="stretch",
+            column_config={
+                "Minutes": st.column_config.NumberColumn(format="%d min"),
+                "Due": st.column_config.DateColumn(format="MMM D, YYYY"),
+                "Done": st.column_config.CheckboxColumn(),
+            },
+        )
+    elif scheduler.all_tasks():
+        st.info("No tasks match these filters.", icon="🔍")
     else:
-        st.info("No tasks yet. Add one above.")
+        st.info("No tasks yet. Add one above.", icon="📝")
+
+    if conflicts:
+        for warning in conflicts:
+            st.warning(warning, icon="⚠️")
+    elif scheduler.all_tasks():
+        st.success("No time conflicts among today's fixed-time tasks.", icon="✅")
 else:
     st.caption("Add a pet before adding tasks.")
 
@@ -155,42 +201,79 @@ st.divider()
 
 st.subheader("Build Schedule")
 
-if st.button("Generate schedule"):
+if st.button("Generate schedule", type="primary"):
     scheduler = Scheduler(owner)
     plan = scheduler.generate_plan()
 
+    conflicts = scheduler.find_conflicts()
+    if conflicts:
+        st.error(
+            f"{len(conflicts)} time conflict(s) among today's fixed-time tasks. "
+            "Consider moving one task in each pair:",
+            icon="🚨",
+        )
+        for warning in conflicts:
+            st.warning(warning, icon="⚠️")
+
     if not plan and not scheduler.skipped_tasks:
-        st.info("There are no unfinished tasks to schedule.")
+        st.info("There are no unfinished tasks to schedule.", icon="🎉")
     else:
-        st.markdown(f"**Today's schedule for {owner.name}**")
+        used = scheduler.get_total_duration()
+        budget = owner.available_minutes
+
+        st.markdown(f"#### Today's schedule for {owner.name}")
+        col1, col2, col3 = st.columns(3)
+        col1.metric("Scheduled", f"{len(plan)} tasks", f"{used} min", delta_color="off")
+        col2.metric("Time left", f"{budget - used} min")
+        col3.metric("Skipped", len(scheduler.skipped_tasks))
+        st.progress(
+            min(used / budget, 1.0) if budget else 0.0,
+            text=f"{used} of {budget} min used",
+        )
+
         clock = datetime.strptime("08:00", "%H:%M")
         schedule_rows = []
         for p, t in plan:
             end = clock + timedelta(minutes=t.duration_minutes)
             schedule_rows.append(
                 {
-                    "Time": f"{clock:%I:%M %p} - {end:%I:%M %p}",
+                    "Slot": f"{clock:%I:%M %p} - {end:%I:%M %p}",
                     "Pet": p.name,
                     "Task": t.title,
-                    "Priority": t.priority.name,
+                    "Minutes": t.duration_minutes,
+                    "Priority": PRIORITY_LABEL[t.priority],
+                    "Fixed time": t.time or "Flexible",
                 }
             )
             clock = end
         if schedule_rows:
-            st.table(schedule_rows)
-        st.success(
-            f"Total scheduled: {scheduler.get_total_duration()} of "
-            f"{owner.available_minutes} min"
-        )
+            st.dataframe(
+                schedule_rows,
+                hide_index=True,
+                width="stretch",
+                column_config={"Minutes": st.column_config.NumberColumn(format="%d min")},
+            )
+            st.success(
+                f"Planned {len(plan)} task(s) in {used} of {budget} minutes.", icon="✅"
+            )
 
         if scheduler.skipped_tasks:
             st.warning(
-                "Skipped (not enough time): "
-                + ", ".join(
-                    f"{p.name}: {t.title} ({t.duration_minutes} min)"
+                f"{len(scheduler.skipped_tasks)} task(s) didn't fit in the remaining time:",
+                icon="⏳",
+            )
+            st.table(
+                [
+                    {
+                        "Pet": p.name,
+                        "Task": t.title,
+                        "Minutes": t.duration_minutes,
+                        "Priority": PRIORITY_LABEL[t.priority],
+                    }
                     for p, t in scheduler.skipped_tasks
-                )
+                ]
             )
 
-        with st.expander("Why this plan?", expanded=True):
-            st.text(scheduler.explain_plan())
+        with st.expander("Why this plan?"):
+            for line in scheduler.explain_plan().splitlines():
+                st.markdown(f"- {line}")

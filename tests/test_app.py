@@ -76,7 +76,7 @@ def test_add_task_stores_it_on_the_selected_pet(app):
     assert (task.title, task.duration_minutes) == ("Breakfast", 10)
     assert task.priority.name == "LOW"
     assert task.frequency is Frequency.DAILY
-    assert len(app.table) == 1  # the "Current tasks" table
+    assert len(app.dataframe) == 1  # the "Current tasks" table
 
 
 def test_mark_complete_on_daily_task_adds_next_day(app):
@@ -106,8 +106,10 @@ def test_generate_schedule_shows_plan_and_skipped_tasks(app):
     app.run()
 
     assert not app.exception
-    assert app.success[0].value == "Total scheduled: 5 of 30 min"
-    assert app.warning[0].value == "Skipped (not enough time): Mochi: Long walk (60 min)"
+    assert app.success[-1].value == "Planned 1 task(s) in 5 of 30 minutes."
+    assert app.warning[-1].value == "1 task(s) didn't fit in the remaining time:"
+    skipped = app.table[-1].value
+    assert list(skipped["Task"]) == ["Long walk"]
 
 
 def test_generate_schedule_with_no_tasks(app):
